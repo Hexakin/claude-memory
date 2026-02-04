@@ -1,0 +1,35 @@
+[Unit]
+Description=Claude Memory MCP Server
+Documentation=https://github.com/Hexakin/claude-memory
+After=network.target
+
+[Service]
+Type=simple
+User=claude-memory
+Group=claude-memory
+WorkingDirectory=/opt/claude-memory/app
+
+ExecStart=/bin/bash -c 'source /opt/claude-memory/.nvm/nvm.sh && exec node packages/server/dist/index.js'
+
+EnvironmentFile=/opt/claude-memory/.env
+
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/claude-memory/data /opt/claude-memory/logs /opt/claude-memory/models
+
+MemoryMax=4G
+CPUQuota=150%
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=claude-memory
+
+[Install]
+WantedBy=multi-user.target
