@@ -1,0 +1,17 @@
+{
+  "name": "claude-memory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Persistent memory system for Claude Code — MCP server with vector search, session hooks, and overnight automation",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter @claude-memory/server dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit -p packages/server/tsconfig.json && tsc --noEmit -p packages/shared/tsconfig.json"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
