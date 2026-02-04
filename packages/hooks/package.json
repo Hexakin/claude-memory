@@ -2,13 +2,15 @@
   "name": "@claude-memory/hooks",
   "version": "0.1.0",
   "type": "module",
-  "main": "dist/cli.mjs",
+  "main": "dist/cli.js",
   "bin": {
-    "claude-memory-hook": "dist/cli.mjs"
+    "claude-memory-hook": "dist/cli.js"
   },
   "scripts": {
     "build": "tsup src/cli.ts --format esm --outDir dist --dts",
-    "dev": "tsup src/cli.ts --format esm --outDir dist --watch"
+    "dev": "tsup src/cli.ts --format esm --outDir dist --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@claude-memory/shared": "workspace:*"
