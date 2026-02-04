@@ -10,6 +10,9 @@ import { runMigrations } from './db/migrations.js';
 import { createEmbedder } from './embedding/embedder.js';
 import { createEmbeddingCache } from './embedding/cache.js';
 import { createServer } from './server.js';
+import { CronScheduler } from './cron/scheduler.js';
+import { AnthropicApiRunner } from './cron/api-runner.js';
+import { CliRunner } from './cron/cli-runner.js';
 import pino from 'pino';
 
 const log = pino({ name: 'claude-memory' });
@@ -50,6 +53,29 @@ async function main(): Promise<void> {
     vecAvailable,
     dataDir,
   });
+
+  // Initialize task scheduler (if enabled)
+  let scheduler: CronScheduler | null = null;
+  const schedulerEnabled = process.env['SCHEDULER_ENABLED'] !== 'false';
+  const anthropicApiKey = process.env['ANTHROPIC_API_KEY'];
+
+  if (schedulerEnabled) {
+    const runner = anthropicApiKey
+      ? new AnthropicApiRunner({ apiKey: anthropicApiKey })
+      : new CliRunner();
+
+    scheduler = new CronScheduler({
+      db: globalDb,
+      runner,
+      cronSchedule: process.env['CRON_SCHEDULE'] ?? undefined,
+      enabled: true,
+    });
+
+    scheduler.start();
+    log.info({ runner: runner.name, schedule: process.env['CRON_SCHEDULE'] ?? '0 2 * * * (default)' }, 'Task scheduler started');
+  } else {
+    log.info('Task scheduler disabled');
+  }
 
   // Set up Express HTTP server
   const app = express();
@@ -155,6 +181,11 @@ async function main(): Promise<void> {
       embeddingLoaded: embedder.isLoaded(),
       sessions: transports.size,
       cacheStats: embeddingCache.stats(),
+      scheduler: scheduler ? {
+        enabled: true,
+        running: scheduler.isRunning(),
+        stats: scheduler.getStats(),
+      } : { enabled: false },
     });
   });
 
@@ -166,6 +197,12 @@ async function main(): Promise<void> {
   // Graceful shutdown
   const shutdown = async (signal: string): Promise<void> => {
     log.info({ signal }, 'Shutting down');
+
+    // Stop scheduler
+    if (scheduler) {
+      scheduler.stop();
+      log.info('Scheduler stopped');
+    }
 
     // Close all session transports
     for (const [sid, transport] of transports) {

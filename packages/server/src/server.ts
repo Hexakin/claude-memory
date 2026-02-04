@@ -8,6 +8,10 @@ import {
   memoryGetSchema,
   memoryListSchema,
   memoryDeleteSchema,
+  taskAddSchema,
+  taskListSchema,
+  taskResultsSchema,
+  taskCancelSchema,
 } from '@claude-memory/shared';
 import type {
   MemoryStoreInput,
@@ -15,6 +19,10 @@ import type {
   MemoryGetInput,
   MemoryListInput,
   MemoryDeleteInput,
+  TaskAddInput,
+  TaskListInput,
+  TaskResultsInput,
+  TaskCancelInput,
 } from '@claude-memory/shared';
 import {
   handleMemoryStore,
@@ -22,6 +30,10 @@ import {
   handleMemoryGet,
   handleMemoryList,
   handleMemoryDelete,
+  handleTaskAdd,
+  handleTaskList,
+  handleTaskResults,
+  handleTaskCancel,
 } from './tools/index.js';
 import pino from 'pino';
 
@@ -154,6 +166,94 @@ export function createServer(ctx: ServerContext): McpServer {
     },
   );
 
-  log.info('MCP server created with 5 tools registered');
+  // task_add
+  server.tool(
+    'task_add',
+    'Add a task to the overnight automation queue. Supports scheduling, priority, and project scoping.',
+    taskAddSchema.shape,
+    async ({ description, type, project, repoUrl, priority, scheduledFor, context, timeoutMs }: TaskAddInput) => {
+      try {
+        const result = await handleTaskAdd(ctx, { description, type, project, repoUrl, priority, scheduledFor, context, timeoutMs });
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err, tool: 'task_add' }, 'Tool error');
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // task_list
+  server.tool(
+    'task_list',
+    'List tasks in the overnight queue with optional filtering by status, project, and date.',
+    taskListSchema.shape,
+    async ({ status, project, since, limit }: TaskListInput) => {
+      try {
+        const result = await handleTaskList(ctx, { status, project, since, limit });
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err, tool: 'task_list' }, 'Tool error');
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // task_results
+  server.tool(
+    'task_results',
+    'Get results of completed overnight tasks with summary, success status, and cost tracking.',
+    taskResultsSchema.shape,
+    async ({ taskId, since, limit }: TaskResultsInput) => {
+      try {
+        const result = await handleTaskResults(ctx, { taskId, since, limit });
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err, tool: 'task_results' }, 'Tool error');
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // task_cancel
+  server.tool(
+    'task_cancel',
+    'Cancel a pending task in the overnight queue.',
+    taskCancelSchema.shape,
+    async ({ id }: TaskCancelInput) => {
+      try {
+        const result = await handleTaskCancel(ctx, { id });
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err, tool: 'task_cancel' }, 'Tool error');
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  log.info('MCP server created with 9 tools registered');
   return server;
 }
