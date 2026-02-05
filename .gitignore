@@ -6,3 +6,4 @@ dist/
 .env
 *.gguf
 .omc/
+CLAUDE.md
