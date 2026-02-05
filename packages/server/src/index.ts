@@ -54,14 +54,14 @@ async function main(): Promise<void> {
   const embeddingCache = createEmbeddingCache(globalDb);
   log.info('Embedding cache initialized');
 
-  // Create MCP server
-  const mcpServer = createServer({
+  // Shared context for per-session MCP server instances
+  const serverCtx = {
     globalDb,
     embedder,
     embeddingCache,
     vecAvailable,
     dataDir,
-  });
+  };
 
   // Initialize task scheduler (if enabled)
   let scheduler: CronScheduler | null = null;
@@ -118,7 +118,8 @@ async function main(): Promise<void> {
         return;
       }
 
-      // Create new session transport
+      // Create new session — each session gets its own McpServer instance
+      // (the SDK only allows one transport per McpServer)
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
       });
@@ -131,7 +132,8 @@ async function main(): Promise<void> {
         }
       };
 
-      await mcpServer.connect(transport);
+      const sessionServer = createServer(serverCtx);
+      await sessionServer.connect(transport);
 
       if (transport.sessionId) {
         transports.set(transport.sessionId, transport);

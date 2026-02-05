@@ -279,6 +279,6 @@ export function createServer(ctx: ServerContext): McpServer {
     },
   );
 
-  log.info('MCP server created with 10 tools registered');
+  log.debug('MCP server created with 10 tools registered');
   return server;
 }
