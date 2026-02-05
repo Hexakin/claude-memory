@@ -3,6 +3,7 @@ export { handleMemorySearch } from './memory-search.js';
 export { handleMemoryGet } from './memory-get.js';
 export { handleMemoryList } from './memory-list.js';
 export { handleMemoryDelete } from './memory-delete.js';
+export { handleMemoryCleanup } from './memory-cleanup.js';
 export { handleTaskAdd } from './task-add.js';
 export { handleTaskList } from './task-list.js';
 export { handleTaskResults } from './task-results.js';

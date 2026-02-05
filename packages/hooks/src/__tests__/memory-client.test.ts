@@ -32,7 +32,7 @@ describe('memory-client', () => {
       });
 
       const client = createMemoryClient({
-        serverUrl: 'http://localhost:3000',
+        serverUrl: 'http://localhost:3577',
         authToken: 'test-token'
       });
 
@@ -41,7 +41,7 @@ describe('memory-client', () => {
       expect(mockFetch).toHaveBeenCalledOnce();
       const [url, options] = mockFetch.mock.calls[0];
 
-      expect(url).toBe('http://localhost:3000/mcp');
+      expect(url).toBe('http://localhost:3577/mcp');
       expect(options.method).toBe('POST');
       expect(options.headers['Content-Type']).toBe('application/json');
       expect(options.headers['Authorization']).toBe('Bearer test-token');
@@ -60,7 +60,7 @@ describe('memory-client', () => {
       mockFetch.mockRejectedValue(new Error('Network error'));
 
       const client = createMemoryClient({
-        serverUrl: 'http://localhost:3000'
+        serverUrl: 'http://localhost:3577'
       });
 
       const results = await client.search('test query');
@@ -76,7 +76,7 @@ describe('memory-client', () => {
       );
 
       const client = createMemoryClient({
-        serverUrl: 'http://localhost:3000',
+        serverUrl: 'http://localhost:3577',
         timeout: 50
       });
 
@@ -104,7 +104,7 @@ describe('memory-client', () => {
       });
 
       const client = createMemoryClient({
-        serverUrl: 'http://localhost:3000',
+        serverUrl: 'http://localhost:3577',
         authToken: 'test-token'
       });
 
@@ -116,7 +116,7 @@ describe('memory-client', () => {
       expect(mockFetch).toHaveBeenCalledOnce();
       const [url, options] = mockFetch.mock.calls[0];
 
-      expect(url).toBe('http://localhost:3000/mcp');
+      expect(url).toBe('http://localhost:3577/mcp');
       expect(options.method).toBe('POST');
 
       const body = JSON.parse(options.body);
@@ -134,7 +134,7 @@ describe('memory-client', () => {
       mockFetch.mockRejectedValue(new Error('Storage error'));
 
       const client = createMemoryClient({
-        serverUrl: 'http://localhost:3000'
+        serverUrl: 'http://localhost:3577'
       });
 
       const result = await client.store('Memory content');
@@ -155,7 +155,7 @@ describe('memory-client', () => {
       });
 
       const client = createMemoryClient({
-        serverUrl: 'http://localhost:3000',
+        serverUrl: 'http://localhost:3577',
         authToken: 'my-secret-token'
       });
 
@@ -210,7 +210,7 @@ describe('memory-client', () => {
       });
 
       const client = createMemoryClient({
-        serverUrl: 'http://localhost:3000'
+        serverUrl: 'http://localhost:3577'
       });
 
       const results = await client.search('test');
@@ -231,7 +231,7 @@ describe('memory-client', () => {
       });
 
       const client = createMemoryClient({
-        serverUrl: 'http://localhost:3000'
+        serverUrl: 'http://localhost:3577'
       });
 
       const results = await client.search('test');
@@ -247,7 +247,7 @@ describe('memory-client', () => {
       });
 
       const client = createMemoryClient({
-        serverUrl: 'http://localhost:3000'
+        serverUrl: 'http://localhost:3577'
       });
 
       const results = await client.search('test');
@@ -268,7 +268,7 @@ describe('memory-client', () => {
       });
 
       const client = createMemoryClient({
-        serverUrl: 'http://localhost:3000'
+        serverUrl: 'http://localhost:3577'
       });
 
       await client.search('test query', { scope: 'project', project: 'proj_123' });
@@ -293,7 +293,7 @@ describe('memory-client', () => {
       });
 
       const client = createMemoryClient({
-        serverUrl: 'http://localhost:3000'
+        serverUrl: 'http://localhost:3577'
       });
 
       await client.store('content', {

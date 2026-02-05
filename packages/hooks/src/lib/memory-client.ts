@@ -20,7 +20,7 @@ export interface MemoryClient {
  * Reads from environment variables: CLAUDE_MEMORY_URL and CLAUDE_MEMORY_TOKEN.
  */
 export function createMemoryClient(config?: Partial<MemoryClientConfig>): MemoryClient {
-  const serverUrl = config?.serverUrl ?? process.env.CLAUDE_MEMORY_URL ?? 'http://localhost:3000';
+  const serverUrl = config?.serverUrl ?? process.env.CLAUDE_MEMORY_URL ?? 'http://localhost:3577';
   const authToken = config?.authToken ?? process.env.CLAUDE_MEMORY_TOKEN ?? '';
   const timeoutMs = config?.timeoutMs ?? HOOK_TIMEOUT_MS;
 

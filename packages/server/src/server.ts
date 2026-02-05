@@ -8,6 +8,7 @@ import {
   memoryGetSchema,
   memoryListSchema,
   memoryDeleteSchema,
+  memoryCleanupSchema,
   taskAddSchema,
   taskListSchema,
   taskResultsSchema,
@@ -19,6 +20,7 @@ import type {
   MemoryGetInput,
   MemoryListInput,
   MemoryDeleteInput,
+  MemoryCleanupInput,
   TaskAddInput,
   TaskListInput,
   TaskResultsInput,
@@ -30,6 +32,7 @@ import {
   handleMemoryGet,
   handleMemoryList,
   handleMemoryDelete,
+  handleMemoryCleanup,
   handleTaskAdd,
   handleTaskList,
   handleTaskResults,
@@ -166,6 +169,28 @@ export function createServer(ctx: ServerContext): McpServer {
     },
   );
 
+  // memory_cleanup
+  server.tool(
+    'memory_cleanup',
+    'Clean up old memories by deleting those not accessed since a given date. Defaults to dry-run mode for safety.',
+    memoryCleanupSchema.shape,
+    async ({ olderThan, maxCount, dryRun, project }: MemoryCleanupInput) => {
+      try {
+        const result = await handleMemoryCleanup(ctx, { olderThan, maxCount, dryRun, project });
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err, tool: 'memory_cleanup' }, 'Tool error');
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }],
+          isError: true,
+        };
+      }
+    },
+  );
+
   // task_add
   server.tool(
     'task_add',
@@ -254,6 +279,6 @@ export function createServer(ctx: ServerContext): McpServer {
     },
   );
 
-  log.info('MCP server created with 9 tools registered');
+  log.info('MCP server created with 10 tools registered');
   return server;
 }
