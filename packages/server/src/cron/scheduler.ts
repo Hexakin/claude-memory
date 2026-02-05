@@ -8,6 +8,7 @@ import {
   claimTask,
   completeTask,
   failTask,
+  requeueTask,
 } from '../db/task-repo.js';
 import type { TaskRunner, TaskRunResult } from './runner.js';
 import { cloneRepo, cleanupClone, createTempDir } from './codebase-access.js';
@@ -36,6 +37,7 @@ export class CronScheduler {
 
   private cronTask: cron.ScheduledTask | null = null;
   private processing = false;
+  private processingPromise: Promise<void> | null = null;
   private stats: SchedulerStats = {
     tasksCompleted: 0,
     tasksFailed: 0,
@@ -65,13 +67,13 @@ export class CronScheduler {
     log.info({ schedule: this.cronSchedule, runner: this.runner.name }, 'Starting cron scheduler');
 
     this.cronTask = cron.schedule(this.cronSchedule, () => {
-      this.processPendingTasks().catch((err) => {
+      this.processingPromise = this.processPendingTasks().catch((err) => {
         log.error({ err }, 'Unhandled error in cron task processing');
       });
     });
 
     // Immediately check for overdue pending tasks
-    this.processPendingTasks().catch((err) => {
+    this.processingPromise = this.processPendingTasks().catch((err) => {
       log.error({ err }, 'Unhandled error in initial task processing');
     });
   }
@@ -79,11 +81,16 @@ export class CronScheduler {
   /**
    * Stop the cron job. Waits for the current task to finish (does not abort it).
    */
-  stop(): void {
+  async stop(): Promise<void> {
     if (this.cronTask) {
       this.cronTask.stop();
       this.cronTask = null;
       log.info('Cron scheduler stopped');
+    }
+    // Wait for any in-flight task processing to complete
+    if (this.processingPromise) {
+      await this.processingPromise;
+      this.processingPromise = null;
     }
   }
 
@@ -162,6 +169,14 @@ export class CronScheduler {
         }
       }
 
+      // Strip sensitive fields from context before passing to runner
+      const sanitizedContext = { ...task.context };
+      delete sanitizedContext['githubToken'];
+      task = {
+        ...task,
+        context: sanitizedContext,
+      };
+
       // Execute the task via the runner
       const result = await this.runner.run(task);
       const durationMs = Date.now() - startTime;
@@ -227,16 +242,7 @@ export class CronScheduler {
         'Task failed, re-queuing for retry',
       );
 
-      this.db
-        .prepare(
-          `UPDATE tasks
-           SET status = 'pending',
-               retry_count = retry_count + 1,
-               started_at = NULL,
-               updated_at = datetime('now')
-           WHERE id = ?`,
-        )
-        .run(task.id);
+      requeueTask(this.db, task.id);
     } else {
       // Permanently fail the task
       taskLog.error(

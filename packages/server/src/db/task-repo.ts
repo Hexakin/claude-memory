@@ -44,6 +44,7 @@ interface TaskResultRow {
   cost_usd: number | null;
   memory_id: string | null;
   created_at: string;
+  task_description: string | null;
 }
 
 function rowToTask(row: TaskRow): Task {
@@ -67,7 +68,7 @@ function rowToTask(row: TaskRow): Task {
   };
 }
 
-function rowToTaskResult(row: TaskResultRow): TaskResult {
+function rowToTaskResult(row: TaskResultRow): TaskResult & { description?: string } {
   return {
     id: row.id,
     taskId: row.task_id,
@@ -80,6 +81,7 @@ function rowToTaskResult(row: TaskResultRow): TaskResult {
     costUsd: row.cost_usd,
     memoryId: row.memory_id,
     createdAt: row.created_at,
+    description: row.task_description ?? undefined,
   };
 }
 
@@ -270,12 +272,26 @@ export function cancelTask(db: Database.Database, id: string): boolean {
 }
 
 /**
+ * Re-queue a failed task for retry: set status back to pending and increment retry count.
+ */
+export function requeueTask(db: Database.Database, id: string): void {
+  db.prepare(
+    `UPDATE tasks
+     SET status = 'pending',
+         retry_count = retry_count + 1,
+         started_at = NULL,
+         updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(id);
+}
+
+/**
  * Get task results with optional filters.
  */
 export function getTaskResults(
   db: Database.Database,
   filters: TaskResultsInput,
-): TaskResult[] {
+): (TaskResult & { description?: string })[] {
   const conditions: string[] = [];
   const params: unknown[] = [];
 
@@ -295,7 +311,10 @@ export function getTaskResults(
 
   const rows = db
     .prepare(
-      `SELECT tr.* FROM task_results tr ${whereClause}
+      `SELECT tr.*, t.description as task_description
+       FROM task_results tr
+       LEFT JOIN tasks t ON tr.task_id = t.id
+       ${whereClause}
        ORDER BY tr.created_at DESC
        LIMIT ?`,
     )

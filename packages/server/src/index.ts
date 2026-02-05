@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import express from 'express';
@@ -16,6 +16,15 @@ import { CliRunner } from './cron/cli-runner.js';
 import pino from 'pino';
 
 const log = pino({ name: 'claude-memory' });
+
+function getFileSizeMb(filePath: string): number {
+  try {
+    const stats = statSync(filePath);
+    return Math.round((stats.size / (1024 * 1024)) * 100) / 100;
+  } catch {
+    return 0;
+  }
+}
 
 async function main(): Promise<void> {
   // Read configuration from environment
@@ -175,12 +184,40 @@ async function main(): Promise<void> {
 
   // Health check endpoint
   app.get('/health', (_req, res) => {
+    // Get memory usage
+    const mem = process.memoryUsage();
+    const memory = {
+      rss: Math.round((mem.rss / (1024 * 1024)) * 100) / 100,
+      heapUsed: Math.round((mem.heapUsed / (1024 * 1024)) * 100) / 100,
+      heapTotal: Math.round((mem.heapTotal / (1024 * 1024)) * 100) / 100,
+    };
+
+    // Get database file sizes (tasks table lives in global.db)
+    const globalDbPath = join(dataDir, 'global.db');
+    const database = {
+      globalDb: getFileSizeMb(globalDbPath),
+    };
+
+    // Get task queue depth
+    let taskQueueDepth = 0;
+    try {
+      const result = globalDb.prepare('SELECT COUNT(*) as count FROM tasks WHERE status = ?').get('pending') as { count: number } | undefined;
+      taskQueueDepth = result?.count ?? 0;
+    } catch {
+      // Ignore errors (table might not exist)
+    }
+
     res.json({
       status: 'ok',
+      version: '0.1.0',
+      uptime: process.uptime(),
+      memory,
+      database,
       vecAvailable,
       embeddingLoaded: embedder.isLoaded(),
       sessions: transports.size,
       cacheStats: embeddingCache.stats(),
+      taskQueueDepth,
       scheduler: scheduler ? {
         enabled: true,
         running: scheduler.isRunning(),
@@ -200,7 +237,7 @@ async function main(): Promise<void> {
 
     // Stop scheduler
     if (scheduler) {
-      scheduler.stop();
+      await scheduler.stop();
       log.info('Scheduler stopped');
     }
 

@@ -5,11 +5,12 @@ import type { Task } from '@claude-memory/shared';
 
 const mockCreate = vi.fn();
 
-vi.mock('@anthropic-ai/sdk', () => ({
-  default: vi.fn().mockImplementation(() => ({
-    messages: { create: mockCreate },
-  })),
-}));
+vi.mock('@anthropic-ai/sdk', () => {
+  const MockAnthropic = function(this: any) {
+    this.messages = { create: mockCreate };
+  } as any;
+  return { default: MockAnthropic };
+});
 
 const mockExecFile = vi.fn();
 

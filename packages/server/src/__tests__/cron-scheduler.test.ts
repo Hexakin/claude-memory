@@ -15,12 +15,14 @@ const mockGetNextPending = vi.fn();
 const mockClaimTask = vi.fn();
 const mockCompleteTask = vi.fn();
 const mockFailTask = vi.fn();
+const mockRequeueTask = vi.fn();
 
 vi.mock('../db/task-repo.js', () => ({
   getNextPending: (...args: unknown[]) => mockGetNextPending(...args),
   claimTask: (...args: unknown[]) => mockClaimTask(...args),
   completeTask: (...args: unknown[]) => mockCompleteTask(...args),
   failTask: (...args: unknown[]) => mockFailTask(...args),
+  requeueTask: (...args: unknown[]) => mockRequeueTask(...args),
 }));
 
 vi.mock('./codebase-access.js', () => ({
@@ -95,12 +97,14 @@ describe('CronScheduler', () => {
     mockClaimTask.mockReset();
     mockCompleteTask.mockReset();
     mockFailTask.mockReset();
+    mockRequeueTask.mockReset();
 
     // Re-set defaults after reset
     mockGetNextPending.mockReturnValue(null);
     mockClaimTask.mockReturnValue(true);
     mockCompleteTask.mockReturnValue(undefined);
     mockFailTask.mockReturnValue(undefined);
+    mockRequeueTask.mockReturnValue(undefined);
 
     // Dynamic import so mocks are in place
     const schedulerModule = await import('../cron/scheduler.js');
@@ -239,19 +243,14 @@ describe('CronScheduler', () => {
         run: vi.fn().mockResolvedValue(failResult),
       });
 
-      // Need a mock db.prepare for the re-queue UPDATE statement
-      const mockRun = vi.fn();
-      const mockPrepare = vi.fn().mockReturnValue({ run: mockRun });
-      const dbWithPrepare = { prepare: mockPrepare } as any;
-
-      const scheduler = new CronScheduler({ db: dbWithPrepare, runner });
+      const scheduler = new CronScheduler({ db: fakeDb, runner });
       mockGetNextPending.mockReturnValueOnce(task).mockReturnValueOnce(null);
 
       scheduler.start();
       await flushPromises();
 
       // retryCount (0) < maxRetries (1) → should re-queue, not permanently fail
-      expect(mockPrepare).toHaveBeenCalled();
+      expect(mockRequeueTask).toHaveBeenCalledWith(fakeDb, task.id);
       expect(mockFailTask).not.toHaveBeenCalled();
     });
 
