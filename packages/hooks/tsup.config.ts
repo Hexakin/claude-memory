@@ -5,7 +5,7 @@ export default defineConfig({
   format: ['esm'],
   outDir: 'dist',
   clean: true,
-  dts: true,
+  dts: false,
   sourcemap: true,
   target: 'node22',
   banner: {
