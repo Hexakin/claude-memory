@@ -23,7 +23,7 @@ Thank you for your interest in contributing to Claude Memory! This guide is desi
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/claude-memory.git
+git clone https://github.com/Hexakin/claude-memory.git
 cd claude-memory
 
 # Install dependencies

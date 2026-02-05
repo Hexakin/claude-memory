@@ -27,7 +27,7 @@ Claude Code sessions are ephemeral by default. `claude-memory` gives Claude a lo
 ### Installation
 
 ```bash
-git clone https://github.com/user/claude-memory.git
+git clone https://github.com/Hexakin/claude-memory.git
 cd claude-memory
 pnpm install
 pnpm -r build
