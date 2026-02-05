@@ -27,13 +27,16 @@ sudo -u claude-memory bash -c "
   pnpm install --frozen-lockfile
 "
 
-# 3. Build
+# 3. Build (clean dist + tsbuildinfo to avoid stale incremental cache)
 echo "[3/5] Building..."
 sudo -u claude-memory bash -c "
   export HOME=/opt/claude-memory
   export NVM_DIR=\$HOME/.nvm
   [ -s \"\$NVM_DIR/nvm.sh\" ] && . \"\$NVM_DIR/nvm.sh\"
   cd $APP_DIR
+  rm -rf packages/shared/dist packages/shared/tsconfig.tsbuildinfo
+  rm -rf packages/server/dist packages/server/tsconfig.tsbuildinfo
+  rm -rf packages/hooks/dist
   pnpm run build
 "
 
