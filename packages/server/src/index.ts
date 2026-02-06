@@ -90,9 +90,12 @@ async function main(): Promise<void> {
   const app = express();
   app.use(express.json());
 
-  // Request logging for debugging MCP client connections
-  app.use((req, _res, next) => {
+  // Request/response logging for debugging MCP client connections
+  app.use((req, res, next) => {
     log.info({ method: req.method, path: req.path, hasAuth: !!req.headers.authorization }, 'Incoming request');
+    res.on('finish', () => {
+      log.info({ method: req.method, path: req.path, status: res.statusCode }, 'Response sent');
+    });
     next();
   });
 
