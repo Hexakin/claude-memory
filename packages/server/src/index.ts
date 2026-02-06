@@ -228,6 +228,13 @@ async function main(): Promise<void> {
     });
   });
 
+  // Catch-all 404 handler — return JSON instead of Express's default HTML.
+  // This is required for MCP clients that probe OAuth endpoints like /register
+  // and /.well-known/oauth-authorization-server; HTML 404s cause parse errors.
+  app.use((_req, res) => {
+    res.status(404).json({ error: 'Not found' });
+  });
+
   // Start server
   const server = app.listen(port, () => {
     log.info({ port }, 'Claude Memory Server listening');
