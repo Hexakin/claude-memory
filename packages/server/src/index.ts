@@ -90,6 +90,12 @@ async function main(): Promise<void> {
   const app = express();
   app.use(express.json());
 
+  // Request logging for debugging MCP client connections
+  app.use((req, _res, next) => {
+    log.info({ method: req.method, path: req.path, hasAuth: !!req.headers.authorization }, 'Incoming request');
+    next();
+  });
+
   // Auth middleware (only if AUTH_TOKEN is set)
   if (authToken) {
     app.use('/mcp', (req, res, next) => {
