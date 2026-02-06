@@ -143,13 +143,14 @@ async function main(): Promise<void> {
 
       const sessionServer = createServer(serverCtx);
       await sessionServer.connect(transport);
+      await transport.handleRequest(req, res, req.body);
 
-      if (transport.sessionId) {
+      // Store session AFTER handleRequest — the session ID is generated during
+      // the first handleRequest call, so it's null before that point.
+      if (transport.sessionId && !transports.has(transport.sessionId)) {
         transports.set(transport.sessionId, transport);
         log.debug({ sessionId: transport.sessionId }, 'New session created');
       }
-
-      await transport.handleRequest(req, res, req.body);
     } catch (err) {
       log.error({ err }, 'Error handling MCP POST request');
       if (!res.headersSent) {
