@@ -1,5 +1,8 @@
 import { HOOK_TIMEOUT_MS } from '@claude-memory/shared';
 import type { MemoryClientConfig } from '../types.js';
+import { createHookLogger } from './logger.js';
+
+const logger = createHookLogger('memory-client');
 
 export interface SearchResult {
   id: string;
@@ -10,9 +13,22 @@ export interface SearchResult {
   createdAt: string;
 }
 
+export interface ListResult {
+  id: string;
+  content: string;
+  tags: string[];
+  source: string | null;
+  createdAt: string;
+  memoryType: string;
+  importanceScore: number;
+  isRule: boolean;
+}
+
 export interface MemoryClient {
   search(query: string, options?: { scope?: string; project?: string; maxResults?: number }): Promise<SearchResult[]>;
-  store(text: string, options?: { source?: string; project?: string; tags?: string[] }): Promise<{ id: string; chunks: number }>;
+  store(text: string, options?: { source?: string; project?: string; tags?: string[]; memory_type?: string; importance?: number; is_rule?: boolean }): Promise<{ id: string; chunks: number }>;
+  list(options?: { tag?: string; project?: string; source?: string; limit?: number }): Promise<ListResult[]>;
+  health(): Promise<boolean>;
 }
 
 const ACCEPT_HEADER = 'application/json, text/event-stream';
@@ -80,6 +96,8 @@ export function createMemoryClient(config?: Partial<MemoryClientConfig>): Memory
   async function ensureSession(signal: AbortSignal): Promise<string | null> {
     if (sessionId) return sessionId;
 
+    logger.debug('Starting MCP handshake', { serverUrl });
+
     // Step 1: initialize
     const initRes = await postMcp({
       jsonrpc: '2.0',
@@ -92,11 +110,19 @@ export function createMemoryClient(config?: Partial<MemoryClientConfig>): Memory
       },
     }, signal);
 
-    if (!initRes.ok) return null;
+    if (!initRes.ok) {
+      logger.error('MCP initialize failed', { status: initRes.status, statusText: initRes.statusText });
+      return null;
+    }
 
     // Extract session ID from response header
     sessionId = initRes.headers.get('mcp-session-id');
-    if (!sessionId) return null;
+    if (!sessionId) {
+      logger.error('No session ID in initialize response');
+      return null;
+    }
+
+    logger.debug('MCP session initialized', { sessionId });
 
     // Consume the response body (SSE format)
     await initRes.text();
@@ -110,6 +136,8 @@ export function createMemoryClient(config?: Partial<MemoryClientConfig>): Memory
     // Consume notification response body (202, usually empty)
     await notifRes.text();
 
+    logger.debug('MCP handshake complete');
+
     return sessionId;
   }
 
@@ -118,8 +146,13 @@ export function createMemoryClient(config?: Partial<MemoryClientConfig>): Memory
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
+      logger.debug('Calling MCP tool', { toolName, args });
+
       const sid = await ensureSession(controller.signal);
-      if (!sid) return null;
+      if (!sid) {
+        logger.error('Failed to establish session for tool call', { toolName });
+        return null;
+      }
 
       const response = await postMcp(
         {
@@ -135,6 +168,7 @@ export function createMemoryClient(config?: Partial<MemoryClientConfig>): Memory
       clearTimeout(timeoutId);
 
       if (!response.ok) {
+        logger.error('MCP tool call failed', { toolName, status: response.status, statusText: response.statusText });
         sessionId = null;
         return null;
       }
@@ -142,22 +176,36 @@ export function createMemoryClient(config?: Partial<MemoryClientConfig>): Memory
       // Response may be SSE format or plain JSON
       const raw = await response.text();
       const data = parseResponse(raw);
-      if (!data || data['error']) return null;
+      if (!data) {
+        logger.error('Failed to parse MCP response', { toolName, rawLength: raw.length });
+        return null;
+      }
+
+      if (data['error']) {
+        logger.error('MCP tool returned error', { toolName, error: data['error'] });
+        return null;
+      }
 
       const result = data['result'] as Record<string, unknown> | undefined;
       const content = result?.['content'] as Array<Record<string, unknown>> | undefined;
       const text = content?.[0]?.['text'] as string | undefined;
 
-      return text ? JSON.parse(text) : null;
-    } catch {
+      const parsed = text ? JSON.parse(text) : null;
+      logger.debug('MCP tool call successful', { toolName });
+      return parsed;
+    } catch (error) {
       clearTimeout(timeoutId);
       sessionId = null;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error('MCP tool call exception', { toolName, error: errorMessage });
       return null;
     }
   }
 
   return {
     async search(query: string, options?: { scope?: string; project?: string; maxResults?: number }): Promise<SearchResult[]> {
+      logger.debug('Searching memories', { query: query.slice(0, 50), scope: options?.scope, project: options?.project });
+
       const result = await callMcpTool<{ results: SearchResult[] }>('memory_search', {
         query,
         scope: options?.scope,
@@ -165,18 +213,59 @@ export function createMemoryClient(config?: Partial<MemoryClientConfig>): Memory
         max_results: options?.maxResults,
       });
 
-      return result?.results ?? [];
+      const results = result?.results ?? [];
+      logger.info('Memory search complete', { resultCount: results.length });
+      return results;
     },
 
-    async store(text: string, options?: { source?: string; project?: string; tags?: string[] }): Promise<{ id: string; chunks: number }> {
+    async store(text: string, options?: { source?: string; project?: string; tags?: string[]; memory_type?: string; importance?: number; is_rule?: boolean }): Promise<{ id: string; chunks: number }> {
+      logger.debug('Storing memory', { textLength: text.length, source: options?.source, project: options?.project, tags: options?.tags });
+
       const result = await callMcpTool<{ id: string; chunks: number }>('memory_store', {
         text,
         source: options?.source,
         project: options?.project,
         tags: options?.tags,
+        memory_type: options?.memory_type,
+        importance: options?.importance,
+        is_rule: options?.is_rule,
       });
 
-      return result ?? { id: '', chunks: 0 };
+      const stored = result ?? { id: '', chunks: 0 };
+      logger.info('Memory store complete', { id: stored.id, chunks: stored.chunks });
+      return stored;
+    },
+
+    async list(options?: { tag?: string; project?: string; source?: string; limit?: number }): Promise<ListResult[]> {
+      logger.debug('Listing memories', { tag: options?.tag, project: options?.project, source: options?.source });
+
+      const result = await callMcpTool<{ memories: ListResult[]; total: number }>('memory_list', {
+        tag: options?.tag,
+        project: options?.project,
+        source: options?.source,
+        limit: options?.limit ?? 50,
+      });
+
+      const memories = result?.memories ?? [];
+      logger.info('Memory list complete', { count: memories.length });
+      return memories;
+    },
+
+    async health(): Promise<boolean> {
+      try {
+        const controller = new AbortController();
+        const healthTimeout = setTimeout(() => controller.abort(), 1000);
+        const res = await fetch(`${serverUrl}/health`, {
+          headers: baseHeaders,
+          signal: controller.signal,
+        });
+        clearTimeout(healthTimeout);
+        logger.debug('Health check result', { ok: res.ok, status: res.status });
+        return res.ok;
+      } catch (err) {
+        logger.warn('Health check failed', { error: String(err) });
+        return false;
+      }
     },
   };
 }

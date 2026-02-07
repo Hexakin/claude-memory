@@ -21,6 +21,7 @@ export interface HybridSearchOptions {
   vectorWeight?: number;
   ftsWeight?: number;
   vecAvailable: boolean;
+  includeArchived?: boolean;
 }
 
 interface MergedChunk {
@@ -38,6 +39,9 @@ interface MemoryRow {
   source: string | null;
   project_id: string | null;
   created_at: string;
+  importance_score: number;
+  last_accessed_at: string;
+  storage_tier: string;
 }
 
 /**
@@ -66,6 +70,7 @@ export async function hybridSearch(
     vectorWeight = DEFAULT_VECTOR_WEIGHT,
     ftsWeight = DEFAULT_FTS_WEIGHT,
     vecAvailable,
+    includeArchived = false,
   } = options;
 
   // Empty or whitespace-only queries
@@ -174,7 +179,7 @@ export async function hybridSearch(
 
   const memoryRows = db
     .prepare(
-      `SELECT id, content, source, project_id, created_at
+      `SELECT id, content, source, project_id, created_at, importance_score, last_accessed_at, storage_tier
        FROM memories
        WHERE id IN (${placeholders})`,
     )
@@ -222,6 +227,12 @@ export async function hybridSearch(
       if (!hasAllTags) continue;
     }
 
+    // Apply tier filter (exclude archived by default)
+    if (!includeArchived) {
+      const tier = memoryRow.storage_tier ?? 'active';
+      if (tier === 'archive') continue;
+    }
+
     const source = (memoryRow.source as MemorySource) ?? null;
 
     results.push({
@@ -233,6 +244,29 @@ export async function hybridSearch(
       createdAt: memoryRow.created_at,
     });
   }
+
+  // Apply recency boost and importance boost
+  const RECENCY_WEIGHT = 0.15;
+  const RECENCY_HALF_LIFE_DAYS = 14;
+  const IMPORTANCE_WEIGHT = 0.10;
+
+  for (const result of results) {
+    const memoryRow = memoryRowMap.get(result.id);
+    if (!memoryRow) continue;
+
+    const daysSinceAccess =
+      (Date.now() - new Date(memoryRow.last_accessed_at).getTime()) / (1000 * 60 * 60 * 24);
+    const recencyBoost = Math.pow(0.5, daysSinceAccess / RECENCY_HALF_LIFE_DAYS);
+    const importanceBoost = memoryRow.importance_score;
+
+    // Original score gets (1 - RECENCY_WEIGHT - IMPORTANCE_WEIGHT) weight
+    const baseWeight = 1 - RECENCY_WEIGHT - IMPORTANCE_WEIGHT;
+    result.score =
+      baseWeight * result.score + RECENCY_WEIGHT * recencyBoost + IMPORTANCE_WEIGHT * importanceBoost;
+  }
+
+  // Re-sort after applying boosts
+  results.sort((a, b) => b.score - a.score);
 
   return results;
 }

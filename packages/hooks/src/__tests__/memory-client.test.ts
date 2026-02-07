@@ -307,5 +307,34 @@ describe('memory-client', () => {
       // Second search: 1 call (tools/call with cached session)
       expect(mockFetch).toHaveBeenCalledTimes(4);
     });
+
+    describe('health', () => {
+      it('returns true when server responds with 200', async () => {
+        mockFetch.mockResolvedValueOnce(new Response('{"status":"ok"}', { status: 200 }));
+
+        const client = createMemoryClient({ serverUrl: 'http://localhost:3577', authToken: 'test-token' });
+        const result = await client.health();
+
+        expect(result).toBe(true);
+      });
+
+      it('returns false when server responds with error', async () => {
+        mockFetch.mockResolvedValueOnce(new Response('error', { status: 500 }));
+
+        const client = createMemoryClient({ serverUrl: 'http://localhost:3577', authToken: 'test-token' });
+        const result = await client.health();
+
+        expect(result).toBe(false);
+      });
+
+      it('returns false when fetch throws', async () => {
+        mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+        const client = createMemoryClient({ serverUrl: 'http://localhost:3577', authToken: 'test-token' });
+        const result = await client.health();
+
+        expect(result).toBe(false);
+      });
+    });
   });
 });

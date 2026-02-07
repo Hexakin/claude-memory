@@ -7,36 +7,51 @@ import {
   memorySearchSchema,
   memoryGetSchema,
   memoryListSchema,
+  memoryUpdateSchema,
   memoryDeleteSchema,
   memoryCleanupSchema,
   taskAddSchema,
   taskListSchema,
   taskResultsSchema,
   taskCancelSchema,
+  memoryFeedbackSchema,
+  memoryBulkDeleteSchema,
+  memoryExportSchema,
+  memoryImportSchema,
 } from '@claude-memory/shared';
 import type {
   MemoryStoreInput,
   MemorySearchInput,
   MemoryGetInput,
   MemoryListInput,
+  MemoryUpdateInput,
   MemoryDeleteInput,
   MemoryCleanupInput,
   TaskAddInput,
   TaskListInput,
   TaskResultsInput,
   TaskCancelInput,
+  MemoryFeedbackInput,
+  MemoryBulkDeleteInput,
+  MemoryExportInput,
+  MemoryImportInput,
 } from '@claude-memory/shared';
 import {
   handleMemoryStore,
   handleMemorySearch,
   handleMemoryGet,
   handleMemoryList,
+  handleMemoryUpdate,
   handleMemoryDelete,
   handleMemoryCleanup,
   handleTaskAdd,
   handleTaskList,
   handleTaskResults,
   handleTaskCancel,
+  handleMemoryFeedback,
+  handleMemoryBulkDelete,
+  handleMemoryExport,
+  handleMemoryImport,
 } from './tools/index.js';
 import pino from 'pino';
 
@@ -139,6 +154,28 @@ export function createServer(ctx: ServerContext): McpServer {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.error({ err, tool: 'memory_list' }, 'Tool error');
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // memory_update
+  server.tool(
+    'memory_update',
+    'Update a memory\'s text, tags, type, importance, or rule status. Re-chunks and re-embeds if text changes.',
+    memoryUpdateSchema.shape,
+    async ({ id, text, tags, memory_type, importance, is_rule }: MemoryUpdateInput) => {
+      try {
+        const result = await handleMemoryUpdate(ctx, { id, text, tags, memory_type, importance, is_rule });
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err, tool: 'memory_update' }, 'Tool error');
         return {
           content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }],
           isError: true,
@@ -279,6 +316,98 @@ export function createServer(ctx: ServerContext): McpServer {
     },
   );
 
-  log.debug('MCP server created with 10 tools registered');
+  // memory_feedback
+  server.tool(
+    'memory_feedback',
+    'Provide feedback on a memory (useful/outdated/wrong/duplicate)',
+    memoryFeedbackSchema.shape,
+    async (params) => {
+      try {
+        const input = memoryFeedbackSchema.parse(params) as MemoryFeedbackInput;
+        const result = await handleMemoryFeedback(ctx, input);
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err, tool: 'memory_feedback' }, 'Tool error');
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // memory_bulk_delete
+  server.tool(
+    'memory_bulk_delete',
+    'Bulk delete memories by tag, project, or age (requires confirm: true)',
+    memoryBulkDeleteSchema.shape,
+    async (params) => {
+      try {
+        const input = memoryBulkDeleteSchema.parse(params) as MemoryBulkDeleteInput;
+        const result = await handleMemoryBulkDelete(ctx, input);
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err, tool: 'memory_bulk_delete' }, 'Tool error');
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // memory_export
+  server.tool(
+    'memory_export',
+    'Export memories as JSON or markdown',
+    memoryExportSchema.shape,
+    async (params) => {
+      try {
+        const input = memoryExportSchema.parse(params) as MemoryExportInput;
+        const result = await handleMemoryExport(ctx, input);
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err, tool: 'memory_export' }, 'Tool error');
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  // memory_import
+  server.tool(
+    'memory_import',
+    'Import memories from JSON',
+    memoryImportSchema.shape,
+    async (params) => {
+      try {
+        const input = memoryImportSchema.parse(params) as MemoryImportInput;
+        const result = await handleMemoryImport(ctx, input);
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error({ err, tool: 'memory_import' }, 'Tool error');
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }],
+          isError: true,
+        };
+      }
+    },
+  );
+
+  log.debug('MCP server created with 15 tools registered');
   return server;
 }

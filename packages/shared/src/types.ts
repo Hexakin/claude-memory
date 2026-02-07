@@ -10,9 +10,17 @@ export interface Memory {
   accessCount: number;
   metadata: Record<string, unknown>;
   tags: string[];
+  memoryType: MemoryType;
+  importanceScore: number;
+  isRule: boolean;
+  storageTier: StorageTier;
 }
 
-export type MemorySource = 'user' | 'session-summary' | 'automation' | 'hook';
+export type MemorySource = 'user' | 'session-summary' | 'automation' | 'hook' | 'extraction' | 'consolidation';
+
+export type MemoryType = 'general' | 'preference' | 'learning' | 'objective' | 'mistake' | 'rule' | 'episode';
+
+export type StorageTier = 'active' | 'working' | 'archive';
 
 /** A chunk of text derived from a memory, with embedding */
 export interface Chunk {
@@ -92,11 +100,17 @@ export interface MemoryStoreInput {
   project?: string;
   source?: MemorySource;
   metadata?: Record<string, unknown>;
+  memory_type?: MemoryType;
+  importance?: number;
+  is_rule?: boolean;
 }
 
 export interface MemoryStoreOutput {
   id: string;
   chunks: number;
+  deduplicated?: boolean;
+  merged?: boolean;
+  similar_memories?: Array<{ id: string; content: string; score: number }>;
 }
 
 export interface MemorySearchInput {
@@ -106,6 +120,7 @@ export interface MemorySearchInput {
   tags?: string[];
   maxResults?: number;
   minScore?: number;
+  include_archived?: boolean;
 }
 
 export interface MemorySearchOutput {
@@ -126,6 +141,10 @@ export interface MemoryGetOutput {
   updatedAt: string;
   accessCount: number;
   metadata: Record<string, unknown>;
+  memoryType: MemoryType;
+  importanceScore: number;
+  isRule: boolean;
+  storageTier: string;
 }
 
 export interface MemoryListInput {
@@ -144,8 +163,26 @@ export interface MemoryListOutput {
     tags: string[];
     source: MemorySource | null;
     createdAt: string;
+    memoryType: MemoryType;
+    importanceScore: number;
+    isRule: boolean;
+    storageTier: StorageTier;
   }>;
   total: number;
+}
+
+export interface MemoryUpdateInput {
+  id: string;
+  text?: string;
+  tags?: string[];
+  memory_type?: MemoryType;
+  importance?: number;
+  is_rule?: boolean;
+}
+
+export interface MemoryUpdateOutput {
+  updated: boolean;
+  chunks?: number;
 }
 
 export interface MemoryDeleteInput {
@@ -229,4 +266,50 @@ export interface TaskCancelInput {
 
 export interface TaskCancelOutput {
   cancelled: boolean;
+}
+
+export type FeedbackRating = 'useful' | 'outdated' | 'wrong' | 'duplicate';
+
+export interface MemoryFeedbackInput {
+  id: string;
+  rating: FeedbackRating;
+}
+
+export interface MemoryFeedbackOutput {
+  updated: boolean;
+  newImportance?: number;
+  action: string;
+}
+
+export interface MemoryBulkDeleteInput {
+  tag?: string;
+  project?: string;
+  older_than?: string;
+  confirm: boolean;
+}
+
+export interface MemoryBulkDeleteOutput {
+  deleted: number;
+}
+
+export interface MemoryExportInput {
+  project?: string;
+  format?: 'json' | 'markdown';
+}
+
+export interface MemoryExportOutput {
+  data: string;
+  count: number;
+  format: string;
+}
+
+export interface MemoryImportInput {
+  data: string;
+  format?: 'json';
+  project?: string;
+}
+
+export interface MemoryImportOutput {
+  imported: number;
+  errors: number;
 }

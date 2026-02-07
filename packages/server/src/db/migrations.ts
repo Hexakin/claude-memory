@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 3;
 
 const BASE_SCHEMA = `
   CREATE TABLE IF NOT EXISTS meta (
@@ -127,8 +127,13 @@ export function runMigrations(db: Database.Database, vecAvailable: boolean): voi
     applyV1(db, vecAvailable);
   }
 
-  // Future migrations would go here:
-  // if (version < 2) { applyV2(db); }
+  if (version < 2) {
+    applyV2(db);
+  }
+
+  if (version < 3) {
+    applyV3(db);
+  }
 }
 
 function getSchemaVersion(db: Database.Database): number {
@@ -141,6 +146,43 @@ function getSchemaVersion(db: Database.Database): number {
     // meta table does not exist yet
     return 0;
   }
+}
+
+function applyV2(db: Database.Database): void {
+  // Each ALTER TABLE must be a separate call for SQLite compatibility
+  db.exec(
+    `ALTER TABLE memories ADD COLUMN memory_type TEXT NOT NULL DEFAULT 'general'`,
+  );
+  db.exec(
+    `ALTER TABLE memories ADD COLUMN importance_score REAL NOT NULL DEFAULT 0.5`,
+  );
+  db.exec(
+    `ALTER TABLE memories ADD COLUMN is_rule INTEGER NOT NULL DEFAULT 0`,
+  );
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_memories_is_rule ON memories(is_rule);
+    CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type);
+    CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance_score DESC);
+  `);
+
+  db.prepare(
+    "UPDATE meta SET value = ? WHERE key = 'schema_version'",
+  ).run(String(2));
+}
+
+function applyV3(db: Database.Database): void {
+  // Each ALTER TABLE must be a separate call for SQLite compatibility
+  db.exec(
+    `ALTER TABLE memories ADD COLUMN storage_tier TEXT NOT NULL DEFAULT 'active'`,
+  );
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_memories_tier ON memories(storage_tier)`,
+  );
+
+  db.prepare(
+    "UPDATE meta SET value = ? WHERE key = 'schema_version'",
+  ).run(String(3));
 }
 
 function applyV1(db: Database.Database, vecAvailable: boolean): void {

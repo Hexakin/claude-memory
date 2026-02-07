@@ -41,6 +41,10 @@ export async function handleMemoryList(
       tags: m.tags,
       source: m.source,
       createdAt: m.createdAt,
+      memoryType: m.memoryType,
+      importanceScore: m.importanceScore,
+      isRule: m.isRule,
+      storageTier: m.storageTier,
     })),
     total: result.total,
   };

@@ -26,5 +26,8 @@ export const DEFAULT_TASK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 export const DEFAULT_CRON_SCHEDULE = '0 2 * * *'; // 2 AM daily
 export const DEFAULT_MAX_RETRIES = 1;
 
-/** Hook configuration */
-export const HOOK_TIMEOUT_MS = 3000; // 3 seconds - don't block Claude Code
+/** Hook timeout for SessionStart (keep fast, don't block Claude Code) */
+export const HOOK_TIMEOUT_MS = 3000; // 3 seconds
+
+/** Hook timeout for SessionEnd (needs more time for extraction + network) */
+export const SESSION_END_TIMEOUT_MS = 10000; // 10 seconds

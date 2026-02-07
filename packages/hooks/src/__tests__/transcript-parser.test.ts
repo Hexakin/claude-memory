@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { tmpdir } from 'node:os';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseTranscript, summarizeTranscript } from '../lib/transcript-parser.js';
+import { parseTranscript, summarizeTranscript, extractKnowledge, formatKnowledgeForStorage } from '../lib/transcript-parser.js';
+import type { ExtractedKnowledge } from '../lib/transcript-parser.js';
 import type { TranscriptMessage } from '../types.js';
 
 describe('transcript-parser', () => {
@@ -107,6 +108,26 @@ describe('transcript-parser', () => {
       expect(messages[0].content).toBe('Plain string content');
       expect(messages[1].content).toBe('Array content');
       expect(messages[2].content).toBe('More array\ncontent');
+    });
+
+    it('captures tool_use blocks', async () => {
+      const jsonl = [
+        { role: 'assistant', content: [
+          { type: 'text', text: 'I will edit the file.' },
+          { type: 'tool_use', name: 'Edit', input: { file_path: '/src/index.ts' } },
+        ]},
+      ].map(msg => JSON.stringify(msg)).join('\n');
+
+      await writeFile(testFilePath, jsonl);
+
+      const messages = await parseTranscript(testFilePath);
+
+      expect(messages).toHaveLength(1);
+      expect(messages[0].content).toBe('I will edit the file.');
+      expect(messages[0].toolUse).toBeDefined();
+      expect(messages[0].toolUse).toHaveLength(1);
+      expect(messages[0].toolUse![0].name).toBe('Edit');
+      expect(messages[0].toolUse![0].input['file_path']).toBe('/src/index.ts');
     });
   });
 
@@ -227,6 +248,196 @@ describe('transcript-parser', () => {
       const summary = summarizeTranscript([]);
 
       expect(summary).toBe('');
+    });
+  });
+
+  describe('extractKnowledge', () => {
+    it('returns null for fewer than 3 user messages', () => {
+      const messages: TranscriptMessage[] = [
+        { role: 'user', content: 'Hello there' },
+        { role: 'assistant', content: 'Hi!' },
+        { role: 'user', content: 'Goodbye' },
+      ];
+
+      expect(extractKnowledge(messages)).toBeNull();
+    });
+
+    it('returns null for trivial sessions with no extractable knowledge', () => {
+      const messages: TranscriptMessage[] = [
+        { role: 'user', content: 'Can you help me?' },
+        { role: 'assistant', content: 'Sure, what do you need?' },
+        { role: 'user', content: 'Never mind, I figured it out' },
+        { role: 'assistant', content: 'Great!' },
+        { role: 'user', content: 'Thanks anyway' },
+      ];
+
+      expect(extractKnowledge(messages)).toBeNull();
+    });
+
+    it('extracts decisions from transcript', () => {
+      const messages: TranscriptMessage[] = [
+        { role: 'user', content: 'What auth library should we use?' },
+        { role: 'assistant', content: 'I recommend passport.js. Let us go with passport.js for authentication because it has great middleware support.' },
+        { role: 'user', content: 'Sounds good. What about the database?' },
+        { role: 'assistant', content: 'We decided to use PostgreSQL with Prisma ORM for the database layer.' },
+        { role: 'user', content: 'And for testing?' },
+        { role: 'assistant', content: 'Going with vitest for testing since it has great TypeScript support. The trick is to configure it with the pool option.' },
+      ];
+
+      const knowledge = extractKnowledge(messages);
+
+      expect(knowledge).not.toBeNull();
+      expect(knowledge!.decisions.length).toBeGreaterThan(0);
+    });
+
+    it('extracts learnings from transcript', () => {
+      const messages: TranscriptMessage[] = [
+        { role: 'user', content: 'Why is the build failing?' },
+        { role: 'assistant', content: 'It turns out the issue was with the tsconfig paths not being resolved correctly.' },
+        { role: 'user', content: 'How did you fix it?' },
+        { role: 'assistant', content: 'Important: you need to add the baseUrl setting. The trick is to use composite: true in the root tsconfig.' },
+        { role: 'user', content: 'Any other gotchas?' },
+        { role: 'assistant', content: 'Note: ESM modules require .js extensions in import paths even for .ts files.' },
+      ];
+
+      const knowledge = extractKnowledge(messages);
+
+      expect(knowledge).not.toBeNull();
+      expect(knowledge!.learnings.length).toBeGreaterThan(0);
+    });
+
+    it('extracts problems solved from transcript', () => {
+      const messages: TranscriptMessage[] = [
+        { role: 'user', content: 'The server keeps crashing' },
+        { role: 'assistant', content: 'The error was: connection pool exhausted. Fixed by increasing max connections to 20.' },
+        { role: 'user', content: 'What about the memory leak?' },
+        { role: 'assistant', content: 'The solution was to properly close database connections in the finally block. Turns out the connection was never being released.' },
+        { role: 'user', content: 'Great, anything else?' },
+        { role: 'assistant', content: 'Also resolved by adding proper error handling to the middleware chain.' },
+      ];
+
+      const knowledge = extractKnowledge(messages);
+
+      expect(knowledge).not.toBeNull();
+      expect(knowledge!.problemsSolved.length).toBeGreaterThan(0);
+    });
+
+    it('extracts files from tool_use blocks', () => {
+      const messages: TranscriptMessage[] = [
+        { role: 'user', content: 'Please update the auth module' },
+        { role: 'assistant', content: 'I will update the files now.', toolUse: [
+          { name: 'Edit', input: { file_path: '/project/src/auth.ts' } },
+          { name: 'Write', input: { file_path: '/project/src/middleware.ts' } },
+        ]},
+        { role: 'user', content: 'Looks good, also the tests' },
+        { role: 'assistant', content: 'Updating tests. Turns out the mock setup was wrong, needed to reset between tests.', toolUse: [
+          { name: 'Edit', input: { file_path: '/project/src/__tests__/auth.test.ts' } },
+        ]},
+        { role: 'user', content: 'Perfect. Let us go with this approach for all the auth modules.' },
+      ];
+
+      const knowledge = extractKnowledge(messages);
+
+      expect(knowledge).not.toBeNull();
+      expect(knowledge!.filesModified).toContain('auth.ts');
+      expect(knowledge!.filesModified).toContain('middleware.ts');
+      expect(knowledge!.filesModified).toContain('auth.test.ts');
+    });
+
+    it('extracts commands from Bash tool_use blocks', () => {
+      const messages: TranscriptMessage[] = [
+        { role: 'user', content: 'Run the tests please' },
+        { role: 'assistant', content: 'Running tests now. Turns out the test runner needs the --passWithNoTests flag.', toolUse: [
+          { name: 'Bash', input: { command: 'npm test -- --passWithNoTests' } },
+        ]},
+        { role: 'user', content: 'Now deploy it' },
+        { role: 'assistant', content: 'Deploying. The fix is to use the production flag.', toolUse: [
+          { name: 'Bash', input: { command: 'npm run deploy --production' } },
+        ]},
+        { role: 'user', content: 'Check the logs too' },
+      ];
+
+      const knowledge = extractKnowledge(messages);
+
+      expect(knowledge).not.toBeNull();
+      expect(knowledge!.commands.length).toBeGreaterThan(0);
+      expect(knowledge!.commands).toContain('npm test -- --passWithNoTests');
+    });
+
+    it('derives topic from first user messages', () => {
+      const messages: TranscriptMessage[] = [
+        { role: 'user', content: 'Help me refactor the payment processing module' },
+        { role: 'assistant', content: 'Sure. Going with the strategy pattern for payment processors since it allows easy extension.' },
+        { role: 'user', content: 'Use Stripe as the default' },
+        { role: 'assistant', content: 'Decided to use Stripe SDK v12 for the integration.' },
+        { role: 'user', content: 'Add error handling too' },
+      ];
+
+      const knowledge = extractKnowledge(messages);
+
+      expect(knowledge).not.toBeNull();
+      expect(knowledge!.topic).toContain('refactor');
+      expect(knowledge!.topic).toContain('payment');
+    });
+
+    it('caps items at 5 per category', () => {
+      const messages: TranscriptMessage[] = [];
+      // Generate many decisions
+      for (let i = 0; i < 10; i++) {
+        messages.push({ role: 'user', content: `What about feature ${i}?` });
+        messages.push({ role: 'assistant', content: `Going with approach-${i} for feature ${i} because it is better.` });
+      }
+
+      const knowledge = extractKnowledge(messages);
+
+      if (knowledge) {
+        expect(knowledge.decisions.length).toBeLessThanOrEqual(5);
+        expect(knowledge.learnings.length).toBeLessThanOrEqual(5);
+        expect(knowledge.problemsSolved.length).toBeLessThanOrEqual(5);
+      }
+    });
+  });
+
+  describe('formatKnowledgeForStorage', () => {
+    it('formats knowledge as structured markdown', () => {
+      const knowledge: ExtractedKnowledge = {
+        topic: 'Building auth system',
+        decisions: ['Use JWT tokens'],
+        learnings: ['Token expiry should be 15 minutes'],
+        problemsSolved: ['Fixed by adding issuer validation'],
+        filesModified: ['auth.ts', 'middleware.ts'],
+        commands: ['npm test'],
+      };
+
+      const formatted = formatKnowledgeForStorage(knowledge);
+
+      expect(formatted).toContain('## Session: Building auth system');
+      expect(formatted).toContain('### Decisions');
+      expect(formatted).toContain('- Use JWT tokens');
+      expect(formatted).toContain('### Learnings');
+      expect(formatted).toContain('- Token expiry should be 15 minutes');
+      expect(formatted).toContain('### Problems Solved');
+      expect(formatted).toContain('- Fixed by adding issuer validation');
+      expect(formatted).toContain('### Files Modified');
+      expect(formatted).toContain('auth.ts');
+    });
+
+    it('omits empty sections', () => {
+      const knowledge: ExtractedKnowledge = {
+        topic: 'Quick fix',
+        decisions: [],
+        learnings: ['The trick is to restart the service'],
+        problemsSolved: [],
+        filesModified: [],
+        commands: [],
+      };
+
+      const formatted = formatKnowledgeForStorage(knowledge);
+
+      expect(formatted).toContain('### Learnings');
+      expect(formatted).not.toContain('### Decisions');
+      expect(formatted).not.toContain('### Problems Solved');
+      expect(formatted).not.toContain('### Files Modified');
     });
   });
 });

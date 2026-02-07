@@ -15,10 +15,17 @@ export interface SessionStartOutput {
   additionalContext?: string;
 }
 
+/** A tool_use block from the transcript */
+export interface ToolUseBlock {
+  name: string;
+  input: Record<string, unknown>;
+}
+
 /** Parsed transcript message */
 export interface TranscriptMessage {
   role: string;
   content: string;
+  toolUse?: ToolUseBlock[];
 }
 
 /** Memory client configuration */

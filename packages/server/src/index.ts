@@ -13,6 +13,10 @@ import { createServer } from './server.js';
 import { CronScheduler } from './cron/scheduler.js';
 import { AnthropicApiRunner } from './cron/api-runner.js';
 import { CliRunner } from './cron/cli-runner.js';
+import cron from 'node-cron';
+import { recalculateAllImportance } from './search/importance.js';
+import { runConsolidation } from './search/consolidation.js';
+import { updateStorageTiers } from './cron/tiering.js';
 import pino from 'pino';
 
 const log = pino({ name: 'claude-memory' });
@@ -85,6 +89,46 @@ async function main(): Promise<void> {
   } else {
     log.info('Task scheduler disabled');
   }
+
+  // Maintenance cron jobs (always enabled)
+  // Importance recalculation: daily at 3 AM
+  const importanceCron = cron.schedule('0 3 * * *', () => {
+    log.info('Running importance recalculation');
+    try {
+      const result = recalculateAllImportance(globalDb);
+      log.info({ updated: result.updated }, 'Importance recalculation complete');
+    } catch (err) {
+      log.error({ err }, 'Importance recalculation failed');
+    }
+  });
+
+  // Consolidation: weekly on Sunday at 4 AM
+  const consolidationCron = cron.schedule('0 4 * * 0', async () => {
+    log.info('Running weekly consolidation');
+    try {
+      const result = await runConsolidation({
+        db: globalDb,
+        embedder,
+        vecAvailable,
+      });
+      log.info(result, 'Weekly consolidation complete');
+    } catch (err) {
+      log.error({ err }, 'Weekly consolidation failed');
+    }
+  });
+
+  // Tiering: nightly at 3:30 AM (after importance recalculation at 3 AM)
+  const tieringCron = cron.schedule('30 3 * * *', () => {
+    log.info('Running storage tier update');
+    try {
+      const result = updateStorageTiers(globalDb);
+      log.info(result, 'Storage tier update complete');
+    } catch (err) {
+      log.error({ err }, 'Storage tier update failed');
+    }
+  });
+
+  log.info('Maintenance cron jobs registered (importance: 3AM daily, consolidation: 4AM Sunday, tiering: 3:30AM daily)');
 
   // Set up Express HTTP server
   const app = express();
@@ -250,6 +294,12 @@ async function main(): Promise<void> {
       await scheduler.stop();
       log.info('Scheduler stopped');
     }
+
+    // Stop maintenance cron jobs
+    importanceCron.stop();
+    consolidationCron.stop();
+    tieringCron.stop();
+    log.info('Maintenance cron jobs stopped');
 
     // Close all session transports
     for (const [sid, transport] of transports) {

@@ -7,6 +7,9 @@ interface CreateMemoryInput {
   source?: string;
   projectId?: string;
   metadata?: Record<string, unknown>;
+  memoryType?: string;
+  importanceScore?: number;
+  isRule?: boolean;
 }
 
 interface ListMemoriesFilters {
@@ -33,6 +36,10 @@ interface MemoryRow {
   last_accessed_at: string;
   access_count: number;
   metadata: string;
+  memory_type: string;
+  importance_score: number;
+  is_rule: number;
+  storage_tier: string;
 }
 
 function rowToMemory(row: MemoryRow, tags: string[]): Memory {
@@ -47,6 +54,10 @@ function rowToMemory(row: MemoryRow, tags: string[]): Memory {
     accessCount: row.access_count,
     metadata: JSON.parse(row.metadata || '{}') as Record<string, unknown>,
     tags,
+    memoryType: (row.memory_type ?? 'general') as Memory['memoryType'],
+    importanceScore: row.importance_score ?? 0.5,
+    isRule: (row.is_rule ?? 0) === 1,
+    storageTier: (row.storage_tier ?? 'active') as Memory['storageTier'],
   };
 }
 
@@ -55,9 +66,9 @@ function rowToMemory(row: MemoryRow, tags: string[]): Memory {
  */
 export function createMemory(db: Database.Database, input: CreateMemoryInput): Memory {
   const stmt = db.prepare(`
-    INSERT INTO memories (content, source, project_id, metadata)
-    VALUES (?, ?, ?, ?)
-    RETURNING id, content, source, project_id, created_at, updated_at, last_accessed_at, access_count, metadata
+    INSERT INTO memories (content, source, project_id, metadata, memory_type, importance_score, is_rule)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    RETURNING id, content, source, project_id, created_at, updated_at, last_accessed_at, access_count, metadata, memory_type, importance_score, is_rule, storage_tier
   `);
 
   const row = stmt.get(
@@ -65,6 +76,9 @@ export function createMemory(db: Database.Database, input: CreateMemoryInput): M
     input.source ?? null,
     input.projectId ?? null,
     JSON.stringify(input.metadata ?? {}),
+    input.memoryType ?? 'general',
+    input.importanceScore ?? 0.5,
+    input.isRule ? 1 : 0,
   ) as MemoryRow;
 
   return rowToMemory(row, []);
@@ -80,7 +94,7 @@ export function getMemoryById(db: Database.Database, id: string): Memory | null 
 
   const row = db
     .prepare(
-      `SELECT id, content, source, project_id, created_at, updated_at, last_accessed_at, access_count, metadata
+      `SELECT id, content, source, project_id, created_at, updated_at, last_accessed_at, access_count, metadata, memory_type, importance_score, is_rule, storage_tier
        FROM memories WHERE id = ?`,
     )
     .get(id) as MemoryRow | undefined;
@@ -138,7 +152,7 @@ export function listMemories(
   const rows = db
     .prepare(
       `SELECT DISTINCT m.id, m.content, m.source, m.project_id, m.created_at, m.updated_at,
-              m.last_accessed_at, m.access_count, m.metadata
+              m.last_accessed_at, m.access_count, m.metadata, m.memory_type, m.importance_score, m.is_rule, m.storage_tier
        FROM memories m ${joinClause} ${whereClause}
        ORDER BY m.created_at DESC
        LIMIT ? OFFSET ?`,
@@ -186,6 +200,88 @@ export function deleteMemory(
   // Delete the memory (cascades to chunks, memory_tags)
   const result = db.prepare('DELETE FROM memories WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+/**
+ * Get all rule memories for a project (includes global rules where project_id IS NULL).
+ */
+export function getRules(
+  db: Database.Database,
+  projectId: string | null,
+  maxRules = 50,
+): Memory[] {
+  const rows = db.prepare(`
+    SELECT id, content, source, project_id, created_at, updated_at,
+           last_accessed_at, access_count, metadata, memory_type, importance_score, is_rule, storage_tier
+    FROM memories
+    WHERE is_rule = 1
+      AND (project_id IS NULL OR project_id = ?)
+    ORDER BY importance_score DESC
+    LIMIT ?
+  `).all(projectId, maxRules) as MemoryRow[];
+
+  const memoryIds = rows.map(r => r.id);
+  const tagsMap = getTagsForMemories(db, memoryIds);
+  return rows.map(row => rowToMemory(row, tagsMap.get(row.id) ?? []));
+}
+
+/**
+ * Update a memory's fields. Returns the updated memory or null if not found.
+ */
+export function updateMemory(
+  db: Database.Database,
+  id: string,
+  updates: {
+    content?: string;
+    memoryType?: string;
+    importanceScore?: number;
+    isRule?: boolean;
+    storageTier?: string;
+  },
+): Memory | null {
+  const setClauses: string[] = ["updated_at = datetime('now')"];
+  const params: unknown[] = [];
+
+  if (updates.content !== undefined) {
+    setClauses.push('content = ?');
+    params.push(updates.content);
+  }
+  if (updates.memoryType !== undefined) {
+    setClauses.push('memory_type = ?');
+    params.push(updates.memoryType);
+  }
+  if (updates.importanceScore !== undefined) {
+    setClauses.push('importance_score = ?');
+    params.push(updates.importanceScore);
+  }
+  if (updates.isRule !== undefined) {
+    setClauses.push('is_rule = ?');
+    params.push(updates.isRule ? 1 : 0);
+  }
+  if (updates.storageTier !== undefined) {
+    setClauses.push('storage_tier = ?');
+    params.push(updates.storageTier);
+  }
+
+  params.push(id);
+
+  const result = db.prepare(
+    `UPDATE memories SET ${setClauses.join(', ')} WHERE id = ?`,
+  ).run(...params);
+
+  if (result.changes === 0) return null;
+
+  // Re-fetch the updated memory
+  const row = db
+    .prepare(
+      `SELECT id, content, source, project_id, created_at, updated_at, last_accessed_at, access_count, metadata, memory_type, importance_score, is_rule, storage_tier
+       FROM memories WHERE id = ?`,
+    )
+    .get(id) as MemoryRow | undefined;
+
+  if (!row) return null;
+  const tags = getTagsForMemory(db, id);
+  return rowToMemory(row, tags);
 }
 
 /**

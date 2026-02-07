@@ -63,6 +63,7 @@ export async function handleMemorySearch(
       maxResults,
       minScore,
       vecAvailable,
+      includeArchived: input.include_archived,
     });
     allResults.push(...results);
   }

@@ -60,6 +60,10 @@ function memoryToOutput(memory: {
   updatedAt: string;
   accessCount: number;
   metadata: Record<string, unknown>;
+  memoryType: string;
+  importanceScore: number;
+  isRule: boolean;
+  storageTier: string;
 }): MemoryGetOutput {
   return {
     id: memory.id,
@@ -71,5 +75,9 @@ function memoryToOutput(memory: {
     updatedAt: memory.updatedAt,
     accessCount: memory.accessCount,
     metadata: memory.metadata,
+    memoryType: memory.memoryType as MemoryGetOutput['memoryType'],
+    importanceScore: memory.importanceScore,
+    isRule: memory.isRule,
+    storageTier: memory.storageTier,
   };
 }

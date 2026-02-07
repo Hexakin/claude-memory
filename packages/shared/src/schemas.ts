@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-const memorySourceSchema = z.enum(['user', 'session-summary', 'automation', 'hook']);
+const memorySourceSchema = z.enum(['user', 'session-summary', 'automation', 'hook', 'extraction', 'consolidation']);
+const memoryTypeSchema = z.enum(['general', 'preference', 'learning', 'objective', 'mistake', 'rule', 'episode']);
 const taskTypeSchema = z.enum(['code-review', 'test-runner', 'doc-updater', 'refactor', 'custom']);
 const taskStatusSchema = z.enum(['pending', 'running', 'completed', 'failed', 'cancelled']);
 
@@ -10,6 +11,9 @@ export const memoryStoreSchema = z.object({
   project: z.string().optional(),
   source: memorySourceSchema.optional(),
   metadata: z.record(z.unknown()).optional(),
+  memory_type: memoryTypeSchema.optional(),
+  importance: z.number().min(0).max(1).optional(),
+  is_rule: z.boolean().optional(),
 });
 
 export const memorySearchSchema = z.object({
@@ -19,6 +23,7 @@ export const memorySearchSchema = z.object({
   tags: z.array(z.string()).optional(),
   maxResults: z.number().int().min(1).max(50).default(10),
   minScore: z.number().min(0).max(1).default(0.3),
+  include_archived: z.boolean().optional(),
 });
 
 export const memoryGetSchema = z.object({
@@ -32,6 +37,15 @@ export const memoryListSchema = z.object({
   since: z.string().optional(),
   limit: z.number().int().min(1).max(100).default(20),
   offset: z.number().int().min(0).default(0),
+});
+
+export const memoryUpdateSchema = z.object({
+  id: z.string().min(1, 'ID is required'),
+  text: z.string().min(1).optional(),
+  tags: z.array(z.string()).optional(),
+  memory_type: memoryTypeSchema.optional(),
+  importance: z.number().min(0).max(1).optional(),
+  is_rule: z.boolean().optional(),
 });
 
 export const memoryDeleteSchema = z.object({
@@ -71,4 +85,27 @@ export const taskResultsSchema = z.object({
 
 export const taskCancelSchema = z.object({
   id: z.string().min(1, 'ID is required'),
+});
+
+export const memoryFeedbackSchema = z.object({
+  id: z.string().min(1, 'Memory ID is required'),
+  rating: z.enum(['useful', 'outdated', 'wrong', 'duplicate']),
+});
+
+export const memoryBulkDeleteSchema = z.object({
+  tag: z.string().optional(),
+  project: z.string().optional(),
+  older_than: z.string().optional(),
+  confirm: z.boolean(),
+});
+
+export const memoryExportSchema = z.object({
+  project: z.string().optional(),
+  format: z.enum(['json', 'markdown']).default('json'),
+});
+
+export const memoryImportSchema = z.object({
+  data: z.string().min(1, 'Import data is required'),
+  format: z.enum(['json']).default('json'),
+  project: z.string().optional(),
 });
