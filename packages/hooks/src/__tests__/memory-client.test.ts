@@ -1,6 +1,40 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMemoryClient } from '../lib/memory-client.js';
 
+/**
+ * Helper: set up mock fetch for the 3-step MCP handshake.
+ * Returns different responses for initialize, initialized, and tools/call.
+ */
+function setupHandshakeMock(
+  mockFetch: ReturnType<typeof vi.fn>,
+  toolResponse: Record<string, unknown>,
+): void {
+  mockFetch.mockImplementation((_url: string, options: { body: string }) => {
+    const body = JSON.parse(options.body);
+
+    if (body.method === 'initialize') {
+      return Promise.resolve({
+        ok: true,
+        headers: new Map([['mcp-session-id', 'test-session-123']]),
+        text: async () => 'event: message\ndata: ' + JSON.stringify({
+          jsonrpc: '2.0', id: 1,
+          result: { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'test', version: '0.1.0' } },
+        }),
+      });
+    }
+
+    if (body.method === 'notifications/initialized') {
+      return Promise.resolve({ ok: true, status: 202, text: async () => '' });
+    }
+
+    // tools/call
+    return Promise.resolve({
+      ok: true,
+      text: async () => 'event: message\ndata: ' + JSON.stringify(toolResponse),
+    });
+  });
+}
+
 describe('memory-client', () => {
   let mockFetch: ReturnType<typeof vi.fn>;
 
@@ -20,15 +54,9 @@ describe('memory-client', () => {
         { id: '2', content: 'Memory 2', score: 0.8, tags: ['example'], source: null, createdAt: '2024-01-01' }
       ];
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          jsonrpc: '2.0',
-          id: 1,
-          result: {
-            content: [{ type: 'text', text: JSON.stringify({ results: mockResults }) }]
-          }
-        })
+      setupHandshakeMock(mockFetch, {
+        jsonrpc: '2.0', id: 2,
+        result: { content: [{ type: 'text', text: JSON.stringify({ results: mockResults }) }] },
       });
 
       const client = createMemoryClient({
@@ -38,13 +66,16 @@ describe('memory-client', () => {
 
       const results = await client.search('test query', { maxResults: 5 });
 
-      expect(mockFetch).toHaveBeenCalledOnce();
-      const [url, options] = mockFetch.mock.calls[0];
+      // 3 calls: initialize, initialized, tools/call
+      expect(mockFetch).toHaveBeenCalledTimes(3);
 
+      // Verify the tools/call request (3rd call)
+      const [url, options] = mockFetch.mock.calls[2];
       expect(url).toBe('http://localhost:3577/mcp');
       expect(options.method).toBe('POST');
       expect(options.headers['Content-Type']).toBe('application/json');
       expect(options.headers['Authorization']).toBe('Bearer test-token');
+      expect(options.headers['mcp-session-id']).toBe('test-session-123');
 
       const body = JSON.parse(options.body);
       expect(body.jsonrpc).toBe('2.0');
@@ -86,21 +117,9 @@ describe('memory-client', () => {
     });
 
     it('store() sends correct MCP JSON-RPC request format', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          jsonrpc: '2.0',
-          id: 1,
-          result: {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                id: 'mem_123',
-                chunks: 3
-              })
-            }]
-          }
-        })
+      setupHandshakeMock(mockFetch, {
+        jsonrpc: '2.0', id: 2,
+        result: { content: [{ type: 'text', text: JSON.stringify({ id: 'mem_123', chunks: 3 }) }] },
       });
 
       const client = createMemoryClient({
@@ -113,9 +132,9 @@ describe('memory-client', () => {
         source: 'test'
       });
 
-      expect(mockFetch).toHaveBeenCalledOnce();
-      const [url, options] = mockFetch.mock.calls[0];
+      expect(mockFetch).toHaveBeenCalledTimes(3);
 
+      const [url, options] = mockFetch.mock.calls[2];
       expect(url).toBe('http://localhost:3577/mcp');
       expect(options.method).toBe('POST');
 
@@ -143,15 +162,9 @@ describe('memory-client', () => {
     });
 
     it('adds Authorization header with bearer token', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          jsonrpc: '2.0',
-          id: 1,
-          result: {
-            content: [{ type: 'text', text: JSON.stringify({ results: [] }) }]
-          }
-        })
+      setupHandshakeMock(mockFetch, {
+        jsonrpc: '2.0', id: 2,
+        result: { content: [{ type: 'text', text: JSON.stringify({ results: [] }) }] },
       });
 
       const client = createMemoryClient({
@@ -161,24 +174,19 @@ describe('memory-client', () => {
 
       await client.search('test');
 
-      const [, options] = mockFetch.mock.calls[0];
-      expect(options.headers['Authorization']).toBe('Bearer my-secret-token');
+      // All 3 calls should have the auth header
+      for (const [, options] of mockFetch.mock.calls) {
+        expect(options.headers['Authorization']).toBe('Bearer my-secret-token');
+      }
     });
 
     it('uses provided config over env vars', async () => {
-      // Set env vars that should be overridden
       process.env.CLAUDE_MEMORY_URL = 'http://env-server:9999';
       process.env.CLAUDE_MEMORY_TOKEN = 'env-token';
 
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          jsonrpc: '2.0',
-          id: 1,
-          result: {
-            content: [{ type: 'text', text: JSON.stringify({ results: [] }) }]
-          }
-        })
+      setupHandshakeMock(mockFetch, {
+        jsonrpc: '2.0', id: 2,
+        result: { content: [{ type: 'text', text: JSON.stringify({ results: [] }) }] },
       });
 
       const client = createMemoryClient({
@@ -192,21 +200,14 @@ describe('memory-client', () => {
       expect(url).toBe('http://config-server:8888/mcp');
       expect(options.headers['Authorization']).toBe('Bearer config-token');
 
-      // Cleanup
       delete process.env.CLAUDE_MEMORY_URL;
       delete process.env.CLAUDE_MEMORY_TOKEN;
     });
 
     it('handles response with no results field', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          jsonrpc: '2.0',
-          id: 1,
-          result: {
-            content: [{ type: 'text', text: JSON.stringify({}) }]
-          }
-        })
+      setupHandshakeMock(mockFetch, {
+        jsonrpc: '2.0', id: 2,
+        result: { content: [{ type: 'text', text: JSON.stringify({}) }] },
       });
 
       const client = createMemoryClient({
@@ -219,15 +220,9 @@ describe('memory-client', () => {
     });
 
     it('handles malformed JSON response', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          jsonrpc: '2.0',
-          id: 1,
-          result: {
-            content: [{ type: 'text', text: 'not valid json' }]
-          }
-        })
+      setupHandshakeMock(mockFetch, {
+        jsonrpc: '2.0', id: 2,
+        result: { content: [{ type: 'text', text: 'not valid json' }] },
       });
 
       const client = createMemoryClient({
@@ -256,15 +251,9 @@ describe('memory-client', () => {
     });
 
     it('includes scope and project in search request', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          jsonrpc: '2.0',
-          id: 1,
-          result: {
-            content: [{ type: 'text', text: JSON.stringify({ results: [] }) }]
-          }
-        })
+      setupHandshakeMock(mockFetch, {
+        jsonrpc: '2.0', id: 2,
+        result: { content: [{ type: 'text', text: JSON.stringify({ results: [] }) }] },
       });
 
       const client = createMemoryClient({
@@ -273,7 +262,7 @@ describe('memory-client', () => {
 
       await client.search('test query', { scope: 'project', project: 'proj_123' });
 
-      const [, options] = mockFetch.mock.calls[0];
+      const [, options] = mockFetch.mock.calls[2];
       const body = JSON.parse(options.body);
 
       expect(body.params.arguments.scope).toBe('project');
@@ -281,15 +270,9 @@ describe('memory-client', () => {
     });
 
     it('includes project in store request when provided', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          jsonrpc: '2.0',
-          id: 1,
-          result: {
-            content: [{ type: 'text', text: JSON.stringify({ id: 'mem_123', chunks: 1 }) }]
-          }
-        })
+      setupHandshakeMock(mockFetch, {
+        jsonrpc: '2.0', id: 2,
+        result: { content: [{ type: 'text', text: JSON.stringify({ id: 'mem_123', chunks: 1 }) }] },
       });
 
       const client = createMemoryClient({
@@ -301,10 +284,28 @@ describe('memory-client', () => {
         tags: []
       });
 
-      const [, options] = mockFetch.mock.calls[0];
+      const [, options] = mockFetch.mock.calls[2];
       const body = JSON.parse(options.body);
 
       expect(body.params.arguments.project).toBe('proj_456');
+    });
+
+    it('caches session ID across multiple calls', async () => {
+      setupHandshakeMock(mockFetch, {
+        jsonrpc: '2.0', id: 2,
+        result: { content: [{ type: 'text', text: JSON.stringify({ results: [] }) }] },
+      });
+
+      const client = createMemoryClient({
+        serverUrl: 'http://localhost:3577'
+      });
+
+      await client.search('first');
+      await client.search('second');
+
+      // First search: 3 calls (initialize + initialized + tools/call)
+      // Second search: 1 call (tools/call with cached session)
+      expect(mockFetch).toHaveBeenCalledTimes(4);
     });
   });
 });
